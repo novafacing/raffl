@@ -1,0 +1,15 @@
+[package]
+name = "raffl"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+members = ["raffl-macro"]
+
+[[bin]]
+name = "test"
+path = "main.rs"
+
+[dependencies]
+raffl-macro = { path = "raffl-macro" }
