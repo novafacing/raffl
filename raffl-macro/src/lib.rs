@@ -1,5 +1,7 @@
 //! Rust Asynchronous FFI Library
 //!
+//! See the documentation for the [`callback_wrapper`] macro for more information on how to use
+//! this macro crate to create a companion C FFI function that calls your rust methods.
 
 use proc_macro::TokenStream;
 use proc_macro_error::{abort, proc_macro_error};
@@ -73,7 +75,7 @@ enum CallbackWrapperArgValue {
 
 struct CallbackWrapperArg {
     typ: CallbackWrapperArgType,
-    value: CallbackWrapperArgValue,
+    _value: CallbackWrapperArgValue,
 }
 
 impl Parse for CallbackWrapperArg {
@@ -115,8 +117,48 @@ pub fn params(_args: TokenStream, input: TokenStream) -> TokenStream {
 
 #[proc_macro_error]
 #[proc_macro_attribute]
-/// Automatically create a companion C FFI function that calls the Rust function with the
-/// arguments the C function received
+/// Create a companion C FFI function that calls the Rust method.
+///
+/// # Syntax
+///
+/// Below is an example of the syntax for this macro. The `callback_wrappers` macro must be
+/// applied to an `impl` block. The `params` macro must be applied to *all* methods in that
+/// `impl` block. Parameters specified in the `params` must be in the order the C FFI callback
+/// function expects to receive them from the C code. The parameter that is a pointer or some
+/// other value that can be converted to a `&self` or `&mut self` reference must be prefixed
+/// with a `!`, and it must have a `From` implementation from the type of the `self` parameter in
+/// the FFI callback function to the type of the `self` parameter in the Rust method (e.g. either
+/// `&self` or `&mut self`).
+///
+/// ```ignore
+/// #[callback_wrappers(<visibility>)]
+///
+/// impl <type> {
+///    #[params(<arg0>, <arg1> ..., !<self>)]
+///     pub fn <method_name>(&self, <arg0>, <arg1> ...) -> <return_type> {
+///     }
+/// }
+/// ```
+///
+///
+/// # Example
+///
+/// This will generate an extern "C" function `test_callbacks::test` that calls the Rust method
+/// `Test::test`, with the first argument being a pointer to the instance of `Test`.
+///
+/// ```
+/// use raffl_macro::{callback_wrappers, params};
+///
+/// struct Test {}
+///
+/// #[callback_wrappers(pub)]
+/// impl Test {
+///    #[params(!slf: *mut std::ffi::c_void, ...)]
+///   pub fn test(&self, a: i32, b: i32) -> i32 {
+///        a + b
+///   }
+/// }
+/// ```
 pub fn callback_wrappers(args: TokenStream, input: TokenStream) -> TokenStream {
     let impl_args = parse_macro_input!(args as CallbackWrapperArgs);
     let visibility = if impl_args.is_pub() {
