@@ -1,7 +1,5 @@
 //! Rust Asynchronous FFI Library
 //!
-//! See the documentation for the [`callback_wrapper`] macro for more information on how to use
-//! this macro crate to create a companion C FFI function that calls your rust methods.
 
 use proc_macro::TokenStream;
 use proc_macro_error::{abort, proc_macro_error};
@@ -75,7 +73,7 @@ enum CallbackWrapperArgValue {
 
 struct CallbackWrapperArg {
     typ: CallbackWrapperArgType,
-    _value: CallbackWrapperArgValue,
+    value: CallbackWrapperArgValue,
 }
 
 impl Parse for CallbackWrapperArg {
