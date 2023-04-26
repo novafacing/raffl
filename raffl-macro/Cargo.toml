@@ -16,4 +16,5 @@ quote = "1.0.26"
 syn = { version = "2.0.15", features = ["full"] }
 
 [dev-dependencies]
+anyhow = "1.0.70"
 trybuild = "1.0.80"

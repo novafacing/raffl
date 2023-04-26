@@ -9,7 +9,7 @@ use syn::{
     parse::{Parse, ParseStream},
     parse_macro_input,
     punctuated::Punctuated,
-    FnArg, ItemImpl, Token,
+    FnArg, Ident, ItemImpl, ReturnType, Token, Type,
 };
 
 /// A type or '...'
@@ -55,12 +55,20 @@ enum CallbackWrapperArgType {
     /// function is called on. This pointer must be convertible to a `&self` or `&mut self` reference,
     /// depending on the callback function's receiver parameter mutability.
     Pub,
+    /// Whether result types should be unwrapped by the wrapper function (to allow the callback
+    /// function to return `Result<T, E>` instead of `T`).
+    UnwrapResult,
 }
 
 impl Parse for CallbackWrapperArgType {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         if let Ok(_pub_literal) = input.parse::<Token![pub]>() {
             Ok(Self::Pub)
+        } else if let Ok(ident) = input.parse::<Ident>() {
+            match ident.to_string().as_str() {
+                "unwrap_result" => Ok(Self::UnwrapResult),
+                _ => abort!(ident.span(), "Unknown callback wrapper argument type"),
+            }
         } else {
             abort!(input.span(), "Expected 'pub'");
         }
@@ -80,7 +88,9 @@ impl Parse for CallbackWrapperArg {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let typ = input.parse::<CallbackWrapperArgType>()?;
         let value = match typ {
-            CallbackWrapperArgType::Pub => CallbackWrapperArgValue::None,
+            CallbackWrapperArgType::Pub | CallbackWrapperArgType::UnwrapResult => {
+                CallbackWrapperArgValue::None
+            }
         };
         Ok(Self { typ, value })
     }
@@ -144,13 +154,13 @@ pub fn params(_args: TokenStream, input: TokenStream) -> TokenStream {
 /// This will generate an extern "C" function `test_callbacks::test` that calls the Rust method
 /// `Test::test`, with the first argument being a pointer to the instance of `Test`.
 ///
-/// ```
+/// ```text
 /// use raffl_macro::{callback_wrappers, params};
 ///
-/// struct Test {}
+/// struct TestStruct {}
 ///
 /// #[callback_wrappers(pub)]
-/// impl Test {
+/// impl TestStruct {
 ///    #[params(!slf: *mut std::ffi::c_void, ...)]
 ///   pub fn test(&self, a: i32, b: i32) -> i32 {
 ///        a + b
@@ -204,7 +214,28 @@ pub fn callback_wrappers(args: TokenStream, input: TokenStream) -> TokenStream {
                     };
                 };
             let fname = &f.sig.ident;
-            let frty = &f.sig.output;
+
+            // Check if frty is a Result
+            let is_result = if let ReturnType::Type(_, ty) = &f.sig.output {
+                if let Type::Path(tp) = ty.as_ref() {
+                    if let Some(segment) = tp.path.segments.last() {
+                        segment.ident == "Result"
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
+            let frty = if is_result {
+                quote! {}
+            } else {
+                let rty = &f.sig.output;
+                quote! { #rty  }
+            };
 
             let receiver = &f.sig.receiver().unwrap();
 
@@ -308,10 +339,16 @@ pub fn callback_wrappers(args: TokenStream, input: TokenStream) -> TokenStream {
                 })
                 .collect::<Vec<_>>();
 
+            let unwrap_mb = if is_result {
+                quote! { .unwrap(); }
+            } else {
+                quote! {}
+            };
+
             let call = quote! {
                 #receiver_ident.#fname(
                     #( #cb_selfcall_args_identsonly ),*
-                )
+                )#unwrap_mb
             };
 
             quote! {
@@ -328,7 +365,7 @@ pub fn callback_wrappers(args: TokenStream, input: TokenStream) -> TokenStream {
 
     let cb_mod_name = format_ident!("{}_callbacks", struct_name_string);
 
-    quote! {
+    let r: TokenStream = quote! {
         #implementation
 
         #visibility mod #cb_mod_name {
@@ -337,5 +374,11 @@ pub fn callback_wrappers(args: TokenStream, input: TokenStream) -> TokenStream {
             #(#callbacks)*
         }
     }
-    .into()
+    .into();
+
+    let s = r.to_string();
+
+    eprintln!("{}", s);
+
+    r
 }
